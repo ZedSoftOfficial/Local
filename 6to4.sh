@@ -16,7 +16,7 @@ setup_rc_local() {
     commands="$1"
 
     # Ensure the file exists and is executable, or empty it if it already exists
-    if [ -f "$FILE" ]; then
+    if [ -f "$FILE" ];then
         sudo bash -c "echo -e '#! /bin/bash\n\nexit 0' > $FILE"
     else
         echo -e '#! /bin/bash\n\nexit 0' | sudo tee "$FILE" > /dev/null
@@ -143,7 +143,34 @@ handle_six_to_four() {
         read -p "Enter the IP outside: " ipkharej
         read -p "Enter the IP Iran: " ipiran
 
-        commands=$(cat <<EOF
+        echo "Do you want all ports to be tunneled?"
+        read -p "(yes/no): " tunnel_choice
+
+        if [ "$tunnel_choice" == "yes" ]; then
+            commands=$(cat <<EOF
+sysctl net.ipv4.ip_forward=1
+iptables -t nat -A PREROUTING -p tcp --dport 22 -j DNAT --to-destination 10.10.10.1
+iptables -t nat -A PREROUTING -j DNAT --to-destination 10.10.10.2
+iptables -t nat -A POSTROUTING -j MASQUERADE
+EOF
+)
+
+        else
+            read -p "Which ports to tunnel? (comma-separated, e.g., 800,8080,6060): " ports
+            IFS=',' read -ra PORTS <<< "$ports"
+            commands=$(cat <<EOF
+sysctl net.ipv4.ip_forward=1
+iptables -t nat -A PREROUTING -p tcp --dport 22 -j DNAT --to-destination 10.10.10.1
+EOF
+)
+            for port in "${PORTS[@]}"; do
+                commands+=$'\n'"iptables -t nat -A PREROUTING -p tcp --dport $port -j DNAT --to-destination 10.10.10.2"
+            done
+            commands+=$'\n'"iptables -t nat -A POSTROUTING -j MASQUERADE"
+        fi
+
+        commands+=$(cat <<EOF
+
 ip tunnel add 6to4_To_IR mode sit remote $ipiran local $ipkharej
 ip -6 addr add 2002:480:1f10:e1f::2/64 dev 6to4_To_IR
 ip link set 6to4_To_IR mtu 1480
@@ -163,21 +190,43 @@ EOF
         read -p "Enter the IP Iran: " ipiran
         read -p "Enter the IP outside: " ipkharej
 
-        commands=$(cat <<EOF
-ip tunnel add 6to4_To_KH mode sit remote $ipkharej local $ipiran
-ip -6 addr add 2002:480:1f10:e1f::1/64 dev 6to4_To_KH
-ip link set 6to4_To_KH mtu 1480
-ip link set 6to4_To_KH up
+        echo "Do you want all ports to be tunneled?"
+        read -p "(yes/no): " tunnel_choice
 
-ip -6 tunnel add GRE6Tun_To_KH mode ip6gre remote 2002:480:1f10:e1f::2 local 2002:480:1f10:e1f::1
-ip addr add 10.10.10.1/30 dev GRE6Tun_To_KH
-ip link set GRE6Tun_To_KH mtu 1436
-ip link set GRE6Tun_To_KH up
-
+        if [ "$tunnel_choice" == "yes" ]; then
+            commands=$(cat <<EOF
 sysctl net.ipv4.ip_forward=1
 iptables -t nat -A PREROUTING -p tcp --dport 22 -j DNAT --to-destination 10.10.10.1
 iptables -t nat -A PREROUTING -j DNAT --to-destination 10.10.10.2
 iptables -t nat -A POSTROUTING -j MASQUERADE
+EOF
+)
+
+        else
+            read -p "Which ports to tunnel? (comma-separated, e.g., 800,8080,6060): " ports
+            IFS=',' read -ra PORTS <<< "$ports"
+            commands=$(cat <<EOF
+sysctl net.ipv4.ip_forward=1
+iptables -t nat -A PREROUTING -p tcp --dport 22 -j DNAT --to-destination 10.10.10.1
+EOF
+)
+            for port in "${PORTS[@]}"; do
+                commands+=$'\n'"iptables -t nat -A PREROUTING -p tcp --dport $port -j DNAT --to-destination 10.10.10.2"
+            done
+            commands+=$'\n'"iptables -t nat -A POSTROUTING -j MASQUERADE"
+        fi
+
+        commands+=$(cat <<EOF
+
+ip tunnel add 6to4_To_IR mode sit remote $ipkharej local $ipiran
+ip -6 addr add 2002:480:1f10:e1f::1/64 dev 6to4_To_IR
+ip link set 6to4_To_IR mtu 1480
+ip link set 6to4_To_IR up
+
+ip -6 tunnel add GRE6Tun_To_IR mode ip6gre remote 2002:480:1f10:e1f::2 local 2002:480:1f10:e1f::1
+ip addr add 10.10.10.1/30 dev GRE6Tun_To_IR
+ip link set GRE6Tun_To_IR mtu 1436
+ip link set GRE6Tun_To_IR up
 EOF
 )
 
@@ -189,26 +238,6 @@ EOF
     fi
 }
 
-# Function to change NameServer
-change_nameserver() {
-    FILE="/etc/resolv.conf"
-    if [ -f "$FILE" ]; then
-        # Backup the original file
-        sudo cp "$FILE" "${FILE}.bak"
-
-        # Remove existing nameserver lines
-        sudo sed -i '/^nameserver /d' "$FILE"
-
-        # Add new nameserver lines
-        echo -e "nameserver 8.8.8.8\nnameserver 1.1.1.1" | sudo tee -a "$FILE" > /dev/null
-
-        echo "NameServers have been updated."
-    else
-        echo "$FILE does not exist."
-    fi
-}
-
-# Execute the selected option
 case $server_choice in
     1)
         handle_six_to_four
@@ -216,9 +245,7 @@ case $server_choice in
     2)
         echo "Removing tunnels..."
         ip tunnel del 6to4_To_IR 2>/dev/null
-        ip -6 tunnel del GRE6Tun_To_IR 2>/dev/null
-        ip link del 6to4_To_IR 2>/dev/null
-        ip link del GRE6Tun_To_IR 2>/dev/null
+        ip tunnel del GRE6Tun_To_IR 2>/dev/null
         iptables -t nat -D PREROUTING -j DNAT --to-destination 10.10.10.2 2>/dev/null
         iptables -t nat -D POSTROUTING -j MASQUERADE 2>/dev/null
         echo -e '#! /bin/bash\n\nexit 0' | sudo tee /etc/rc.local > /dev/null
