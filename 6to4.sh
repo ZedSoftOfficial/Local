@@ -15,21 +15,21 @@ setup_rc_local() {
     FILE="/etc/rc.local"
     commands="$1"
 
-    # Ensure the file exists and is executable
-    if [ ! -f "$FILE" ]; then
-        echo -e '#! /bin/bash\n\nexit 0' | sudo tee "$FILE" > /dev/null
-        sudo chmod +x "$FILE"
-    fi
-
-    # Check if the file already contains content and add new commands accordingly
-    if grep -q 'ip tunnel add' "$FILE"; then
-        # If the file has existing commands, add new ones above 'exit 0'
-        sudo bash -c "sed -i '/exit 0/i $commands' $FILE"
+    # Ensure the file exists and is executable, or empty it if it already exists
+    if [ -f "$FILE" ]; then
+        sudo bash -c "echo -e '#! /bin/bash\n\nexit 0' > $FILE"
     else
-        # If the file is empty or does not have the relevant commands, replace its content
-        sudo bash -c "echo -e '#! /bin/bash\n\n$commands\n\nexit 0' > $FILE"
+        echo -e '#! /bin/bash\n\nexit 0' | sudo tee "$FILE" > /dev/null
     fi
+    sudo chmod +x "$FILE"
+
+    # Add new commands above 'exit 0'
+    sudo bash -c "sed -i '/exit 0/i $commands' $FILE"
     echo "Commands added to /etc/rc.local"
+
+    # Execute the commands immediately
+    eval "$commands"
+    echo "Commands executed immediately."
 }
 
 # Function to handle Fix Whatsapp Time option
@@ -128,8 +128,8 @@ sudo sysctl -w net.ipv6.conf.lo.disable_ipv6=1
 EOF
 )
 
-    eval "$commands"
-    echo "IPv6 has been disabled. This change is temporary and will revert after reboot."
+    setup_rc_local "$commands"
+    echo "IPv6 has been disabled."
 }
 
 # Function to handle 6to4 option
@@ -145,18 +145,17 @@ handle_six_to_four() {
 
         commands=$(cat <<EOF
 ip tunnel add 6to4_To_IR mode sit remote $ipiran local $ipkharej
-ip -6 addr add 2009:499:1d10:e1d::2/64 dev 6to4_To_IR
+ip -6 addr add 2002:480:1f10:e1f::2/64 dev 6to4_To_IR
 ip link set 6to4_To_IR mtu 1480
 ip link set 6to4_To_IR up
 
-ip -6 tunnel add GRE6Tun_To_IR mode ip6gre remote 2009:499:1d10:e1d::1 local 2009:499:1d10:e1d::2
-ip addr add 180.18.18.2/30 dev GRE6Tun_To_IR
+ip -6 tunnel add GRE6Tun_To_IR mode ip6gre remote 2002:480:1f10:e1f::1 local 2002:480:1f10:e1f::2
+ip addr add 10.10.10.2/30 dev GRE6Tun_To_IR
 ip link set GRE6Tun_To_IR mtu 1436
 ip link set GRE6Tun_To_IR up
 EOF
 )
 
-        eval "$commands"
         setup_rc_local "$commands"
         echo "Commands executed for the outside server."
 
@@ -166,23 +165,22 @@ EOF
 
         commands=$(cat <<EOF
 ip tunnel add 6to4_To_KH mode sit remote $ipkharej local $ipiran
-ip -6 addr add 2009:499:1d10:e1d::1/64 dev 6to4_To_KH
+ip -6 addr add 2002:480:1f10:e1f::1/64 dev 6to4_To_KH
 ip link set 6to4_To_KH mtu 1480
 ip link set 6to4_To_KH up
 
-ip -6 tunnel add GRE6Tun_To_KH mode ip6gre remote 2009:499:1d10:e1d::2 local 2009:499:1d10:e1d::1
-ip addr add 180.18.18.1/30 dev GRE6Tun_To_KH
+ip -6 tunnel add GRE6Tun_To_KH mode ip6gre remote 2002:480:1f10:e1f::2 local 2002:480:1f10:e1f::1
+ip addr add 10.10.10.1/30 dev GRE6Tun_To_KH
 ip link set GRE6Tun_To_KH mtu 1436
 ip link set GRE6Tun_To_KH up
 
 sysctl net.ipv4.ip_forward=1
-iptables -t nat -A PREROUTING -p tcp --dport 22 -j DNAT --to-destination 180.18.18.1
-iptables -t nat -A PREROUTING -j DNAT --to-destination 180.18.18.2
+iptables -t nat -A PREROUTING -p tcp --dport 22 -j DNAT --to-destination 10.10.10.1
+iptables -t nat -A PREROUTING -j DNAT --to-destination 10.10.10.2
 iptables -t nat -A POSTROUTING -j MASQUERADE
 EOF
 )
 
-        eval "$commands"
         setup_rc_local "$commands"
         echo "Commands executed for the Iran server."
 
@@ -221,7 +219,7 @@ case $server_choice in
         ip -6 tunnel del GRE6Tun_To_IR 2>/dev/null
         ip link del 6to4_To_IR 2>/dev/null
         ip link del GRE6Tun_To_IR 2>/dev/null
-        iptables -t nat -D PREROUTING -j DNAT --to-destination 180.18.18.2 2>/dev/null
+        iptables -t nat -D PREROUTING -j DNAT --to-destination 10.10.10.2 2>/dev/null
         iptables -t nat -D POSTROUTING -j MASQUERADE 2>/dev/null
         echo -e '#! /bin/bash\n\nexit 0' | sudo tee /etc/rc.local > /dev/null
         sudo chmod +x /etc/rc.local
