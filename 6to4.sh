@@ -17,10 +17,12 @@ setup_rc_local() {
     FILE="/etc/rc.local"
     commands="$1"
 
-    # Ensure the file exists and is executable, or create and set it
-    if [ ! -f "$FILE" ]; then
+    # Ensure the file starts with the correct shebang and has an exit statement
+    if ! sudo grep -q '#! /bin/bash' "$FILE"; then
         echo -e '#! /bin/bash\n\nexit 0' | sudo tee "$FILE" > /dev/null
     fi
+
+    # Ensure the file is executable
     sudo chmod +x "$FILE"
 
     # Add new commands before 'exit 0'
@@ -47,6 +49,9 @@ handle_six_to_four_multi_outside_iran() {
             read -p "Enter the IP Iran2: " ipiran2
 
             commands=$(cat <<EOF
+#!/bin/bash
+
+# تنظیمات تونل برای اولین سرور ایران
 ip tunnel add 6to4_To_IR1 mode sit remote $ipiran1 local $ipkharej
 ip -6 addr add 2002:480:1f10:e1f::2/64 dev 6to4_To_IR1
 ip link set 6to4_To_IR1 mtu 1480
@@ -57,6 +62,7 @@ ip addr add 10.10.10.2/30 dev GRE6Tun_To_IR1
 ip link set GRE6Tun_To_IR1 mtu 1436
 ip link set GRE6Tun_To_IR1 up
 
+# تنظیمات تونل برای دومین سرور ایران
 ip tunnel add 6to4_To_IR2 mode sit remote $ipiran2 local $ipkharej
 ip -6 addr add 2009:480:1f10:e1f::2/64 dev 6to4_To_IR2
 ip link set 6to4_To_IR2 mtu 1480
@@ -66,15 +72,19 @@ ip -6 tunnel add GRE6Tun_To_IR2 mode ip6gre remote 2009:480:1f10:e1f::1 local 20
 ip addr add 10.10.11.2/30 dev GRE6Tun_To_IR2
 ip link set GRE6Tun_To_IR2 mtu 1436
 ip link set GRE6Tun_To_IR2 up
+
+exit 0
 EOF
 )
             ;;
         2)
             read -p "Enter the IP Iran1: " ipiran1
             read -p "Enter the IP Outside: " ipkharej
-            read -p "Enter the ports to tunnel (example: 80,9090): " ports
 
             commands=$(cat <<EOF
+#!/bin/bash
+
+# تنظیمات تونل برای سرور ایران 1
 ip tunnel add 6to4_To_KH mode sit remote $ipkharej local $ipiran1
 ip -6 addr add 2002:480:1f10:e1f::1/64 dev 6to4_To_KH
 ip link set 6to4_To_KH mtu 1480
@@ -87,29 +97,22 @@ ip link set GRE6Tun_To_KH up
 
 sysctl net.ipv4.ip_forward=1
 
-EOF
-)
-
-            # Add iptables rules
-            IFS=',' read -r -a ports_array <<< "$ports"
-            for port in "${ports_array[@]}"; do
-                commands+=$(cat <<EOF
-iptables -t nat -A PREROUTING -p tcp --dport $port -j DNAT --to-destination 10.10.10.1
-EOF
-)
-            done
-            commands+=$(cat <<EOF
+# قوانین IPTables برای سرور ایران اول
+iptables -t nat -A PREROUTING -p tcp --dport 80 -j DNAT --to-destination 10.10.10.1
 iptables -t nat -A POSTROUTING -j MASQUERADE
+
+exit 0
 EOF
 )
-
             ;;
         3)
             read -p "Enter the IP Iran2: " ipiran2
             read -p "Enter the IP Outside: " ipkharej
-            read -p "Enter the ports to tunnel (example: 80,9090): " ports
 
             commands=$(cat <<EOF
+#!/bin/bash
+
+# تنظیمات تونل برای سرور ایران 2
 ip tunnel add 6to4_To_KH mode sit remote $ipkharej local $ipiran2
 ip -6 addr add 2009:480:1f10:e1f::1/64 dev 6to4_To_KH
 ip link set 6to4_To_KH mtu 1480
@@ -122,22 +125,13 @@ ip link set GRE6Tun_To_KH up
 
 sysctl net.ipv4.ip_forward=1
 
-EOF
-)
-
-            # Add iptables rules
-            IFS=',' read -r -a ports_array <<< "$ports"
-            for port in "${ports_array[@]}"; do
-                commands+=$(cat <<EOF
-iptables -t nat -A PREROUTING -p tcp --dport $port -j DNAT --to-destination 10.10.11.1
-EOF
-)
-            done
-            commands+=$(cat <<EOF
+# قوانین IPTables برای سرور ایران دوم
+iptables -t nat -A PREROUTING -p tcp --dport 80 -j DNAT --to-destination 10.10.11.1
 iptables -t nat -A POSTROUTING -j MASQUERADE
+
+exit 0
 EOF
 )
-
             ;;
         *)
             echo "Invalid option. Please select 1, 2, or 3."
@@ -160,7 +154,7 @@ remove_tunnels() {
     sudo ip tunnel del GRE6Tun_To_IR2 2>/dev/null
     sudo ip link del 6to4_To_KH 2>/dev/null
     sudo ip link del GRE6Tun_To_KH 2>/dev/null
-    sudo iptables -t nat -D PREROUTING -j DNAT --to-destination 10.10.10.1 2>/dev/null
+    sudo iptables -t nat -D PREROUTING -p tcp --dport 80 -j DNAT --to-destination 10.10.10.1 2>/dev/null
     sudo iptables -t nat -D POSTROUTING -j MASQUERADE 2>/dev/null
 
     # Update /etc/rc.local
