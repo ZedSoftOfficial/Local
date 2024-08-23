@@ -177,6 +177,11 @@ ip link set GRE6Tun_To_KH mtu 1436
 ip link set GRE6Tun_To_KH up
 
 sysctl net.ipv4.ip_forward=1
+EOF
+)
+
+        # Add iptables rules to rc.local for Iran server
+        iptables_rules=$(cat <<EOF
 iptables -t nat -A PREROUTING -p tcp --dport 22 -j DNAT --to-destination 10.10.10.1
 iptables -t nat -A PREROUTING -j DNAT --to-destination 10.10.10.2
 iptables -t nat -A POSTROUTING -j MASQUERADE
@@ -184,6 +189,7 @@ EOF
 )
 
         setup_rc_local "$commands"
+        setup_rc_local "$iptables_rules"
         echo "Commands executed for the Iran server."
 
     else
@@ -193,27 +199,43 @@ EOF
 
 # Function to handle 6to4 multi server (1 iran 2 outside)
 handle_six_to_four_multi_iran_kharej() {
+    read -p "Enter the IP Iran: " ipiran
     read -p "Enter the IP outside1: " ipkharej1
     read -p "Enter the IP outside2: " ipkharej2
-    read -p "Enter the IP Iran: " ipiran
+    read -p "Enter the ports to tunnel for IP Iran (example: 80,9090): " ports_iran
+    read -p "Enter the ports to tunnel for IP outside1 (example: 80,9090): " ports_outside1
+    read -p "Enter the ports to tunnel for IP outside2 (example: 80,9090): " ports_outside2
 
-    read -p "Enter the ports to tunnel for IP outside1 (example: 80,9090): " ports1
-    read -p "Enter the ports to tunnel for IP outside2 (example: 80,9090): " ports2
+    # Convert comma-separated ports into individual rules
+    IFS=',' read -r -a ports_iran_array <<< "$ports_iran"
+    IFS=',' read -r -a ports_outside1_array <<< "$ports_outside1"
+    IFS=',' read -r -a ports_outside2_array <<< "$ports_outside2"
 
-    commands=$(cat <<EOF
-ip tunnel add 6to4_To_KH1 mode sit remote $ipkharej1 local $ipiran
-ip -6 addr add 2002:480:1f10:e1f::1/64 dev 6to4_To_KH1
-ip link set 6to4_To_KH1 mtu 1480
-ip link set 6to4_To_KH1 up
+    commands=""
 
-ip tunnel add 6to4_To_KH2 mode sit remote $ipkharej2 local $ipiran
-ip -6 addr add 2002:480:1f10:e1f::2/64 dev 6to4_To_KH2
-ip link set 6to4_To_KH2 mtu 1480
-ip link set 6to4_To_KH2 up
+    for port in "${ports_iran_array[@]}"; do
+        commands+=$(cat <<EOF
+iptables -t nat -A PREROUTING -p tcp -d $ipiran --dport $port -j DNAT --to-destination 10.10.10.1
+EOF
+)
+    done
 
+    for port in "${ports_outside1_array[@]}"; do
+        commands+=$(cat <<EOF
+iptables -t nat -A PREROUTING -p tcp -d $ipkharej1 --dport $port -j DNAT --to-destination 10.10.10.2
+EOF
+)
+    done
+
+    for port in "${ports_outside2_array[@]}"; do
+        commands+=$(cat <<EOF
+iptables -t nat -A PREROUTING -p tcp -d $ipkharej2 --dport $port -j DNAT --to-destination 10.10.10.3
+EOF
+)
+    done
+
+    commands+=$(cat <<EOF
 sysctl net.ipv4.ip_forward=1
-iptables -t nat -A PREROUTING -p tcp --dport $ports1 -j DNAT --to-destination 10.10.10.1
-iptables -t nat -A PREROUTING -p tcp --dport $ports2 -j DNAT --to-destination 10.10.10.2
 iptables -t nat -A POSTROUTING -j MASQUERADE
 EOF
 )
@@ -223,53 +245,41 @@ EOF
 }
 
 # Function to handle 6to4 multi server (1 outside 2 iran)
-handle_six_to_four_multi_kharej_iran() {
-    read -p "Enter the IP Iran1: " ipiran1
-    read -p "Enter the IP Iran2: " ipiran2
-    read -p "Enter the IP outside: " ipkharej
+handle_six_to_four_multi_outside_iran() {
+    read -p "Enter the IP outside1: " ipkharej1
+    read -p "Enter the IP outside2: " ipkharej2
+    read -p "Enter the IP Iran: " ipiran
+    read -p "Enter the ports to tunnel for IP outside1 (example: 80,9090): " ports_outside1
+    read -p "Enter the ports to tunnel for IP outside2 (example: 80,9090): " ports_outside2
 
-    read -p "Enter the ports to tunnel for IP Iran1 (example: 80,9090): " ports1
-    read -p "Enter the ports to tunnel for IP Iran2 (example: 80,9090): " ports2
+    # Convert comma-separated ports into individual rules
+    IFS=',' read -r -a ports_outside1_array <<< "$ports_outside1"
+    IFS=',' read -r -a ports_outside2_array <<< "$ports_outside2"
 
-    commands=$(cat <<EOF
-ip tunnel add 6to4_To_IR1 mode sit remote $ipiran1 local $ipkharej
-ip -6 addr add 2002:480:1f10:e1f::1/64 dev 6to4_To_IR1
-ip link set 6to4_To_IR1 mtu 1480
-ip link set 6to4_To_IR1 up
+    commands=""
 
-ip tunnel add 6to4_To_IR2 mode sit remote $ipiran2 local $ipkharej
-ip -6 addr add 2002:480:1f10:e1f::2/64 dev 6to4_To_IR2
-ip link set 6to4_To_IR2 mtu 1480
-ip link set 6to4_To_IR2 up
+    for port in "${ports_outside1_array[@]}"; do
+        commands+=$(cat <<EOF
+iptables -t nat -A PREROUTING -p tcp -d $ipkharej1 --dport $port -j DNAT --to-destination 10.10.10.1
+EOF
+)
+    done
 
+    for port in "${ports_outside2_array[@]}"; do
+        commands+=$(cat <<EOF
+iptables -t nat -A PREROUTING -p tcp -d $ipkharej2 --dport $port -j DNAT --to-destination 10.10.10.2
+EOF
+)
+    done
+
+    commands+=$(cat <<EOF
 sysctl net.ipv4.ip_forward=1
-iptables -t nat -A PREROUTING -p tcp --dport $ports1 -j DNAT --to-destination 10.10.10.1
-iptables -t nat -A PREROUTING -p tcp --dport $ports2 -j DNAT --to-destination 10.10.10.2
 iptables -t nat -A POSTROUTING -j MASQUERADE
 EOF
 )
 
     setup_rc_local "$commands"
     echo "Commands executed for the multi-server (1 Outside, 2 Iran) setup."
-}
-
-# Function to change NameServer
-change_nameserver() {
-    FILE="/etc/resolv.conf"
-    if [ -f "$FILE" ]; then
-        # Backup the original file
-        sudo cp "$FILE" "${FILE}.bak"
-
-        # Remove existing nameserver lines
-        sudo sed -i '/^nameserver /d' "$FILE"
-
-        # Add new nameserver lines
-        echo -e "nameserver 8.8.8.8\nnameserver 1.1.1.1" | sudo tee -a "$FILE" > /dev/null
-
-        echo "NameServers have been updated."
-    else
-        echo "$FILE does not exist."
-    fi
 }
 
 # Function to remove tunnels
@@ -291,6 +301,13 @@ remove_tunnels() {
     echo "Tunnels removed and /etc/rc.local updated."
 }
 
+# Function to change nameserver
+change_nameserver() {
+    read -p "Enter the new nameserver IP address: " nameserver
+    echo "nameserver $nameserver" | sudo tee /etc/resolv.conf > /dev/null
+    echo "Nameserver changed to $nameserver."
+}
+
 # Execute the selected option
 case $server_choice in
     1)
@@ -300,25 +317,22 @@ case $server_choice in
         handle_six_to_four_multi_iran_kharej
         ;;
     3)
-        handle_six_to_four_multi_kharej_iran
+        handle_six_to_four_multi_outside_iran
         ;;
     4)
         remove_tunnels
         ;;
     5)
-        wget --no-check-certificate -O /opt/bbr.sh https://github.com/teddysun/across/raw/master/bbr.sh
-        chmod 755 /opt/bbr.sh
-        /opt/bbr.sh
-        echo "BBR optimization enabled."
+        optimize
         ;;
     6)
         fix_whatsapp_time
         ;;
     7)
-        optimize
+        install_x_ui
         ;;
     8)
-        install_x_ui
+        disable_ipv6
         ;;
     9)
         change_nameserver
@@ -327,6 +341,6 @@ case $server_choice in
         disable_ipv6
         ;;
     *)
-        echo "Invalid option. Please select a valid option."
+        echo "Invalid option. Please select 1, 2, 3, 4, 5, 6, 7, 8, 9, or 10."
         ;;
 esac
