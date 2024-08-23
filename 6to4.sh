@@ -18,23 +18,18 @@ setup_rc_local() {
     commands="$1"
 
     # Ensure the file starts with the correct shebang and has an exit statement
-    if ! sudo grep -q '#! /bin/bash' "$FILE"; then
-        echo -e '#! /bin/bash\n\nexit 0' | sudo tee "$FILE" > /dev/null
-    fi
+    sudo bash -c "echo '#!/bin/bash' > $FILE"
+    sudo bash -c "echo 'exit 0' >> $FILE"
 
-    # Ensure the file is executable
-    sudo chmod +x "$FILE"
-
-    # Add new commands before 'exit 0'
+    # Append new commands before 'exit 0'
     sudo bash -c "sed -i '/exit 0/i $commands' $FILE"
     echo "Commands added to /etc/rc.local"
 
-    # Execute the commands immediately
-    eval "$commands"
-    echo "Commands executed immediately."
+    # Ensure the file is executable
+    sudo chmod +x "$FILE"
 }
 
-# Function to handle 6to4 multi server (1 outside 2 iran)
+# Function to handle 6to4 multi server (1 outside 2 Iran)
 handle_six_to_four_multi_outside_iran() {
     echo "Which server is this?"
     echo "1) Outside"
@@ -77,62 +72,6 @@ exit 0
 EOF
 )
             ;;
-        2)
-            read -p "Enter the IP Iran1: " ipiran1
-            read -p "Enter the IP Outside: " ipkharej
-
-            commands=$(cat <<EOF
-#!/bin/bash
-
-# تنظیمات تونل برای سرور ایران 1
-ip tunnel add 6to4_To_KH mode sit remote $ipkharej local $ipiran1
-ip -6 addr add 2002:480:1f10:e1f::1/64 dev 6to4_To_KH
-ip link set 6to4_To_KH mtu 1480
-ip link set 6to4_To_KH up
-
-ip -6 tunnel add GRE6Tun_To_KH mode ip6gre remote 2002:480:1f10:e1f::2 local 2002:480:1f10:e1f::1
-ip addr add 10.10.10.1/30 dev GRE6Tun_To_KH
-ip link set GRE6Tun_To_KH mtu 1436
-ip link set GRE6Tun_To_KH up
-
-sysctl net.ipv4.ip_forward=1
-
-# قوانین IPTables برای سرور ایران اول
-iptables -t nat -A PREROUTING -p tcp --dport 80 -j DNAT --to-destination 10.10.10.1
-iptables -t nat -A POSTROUTING -j MASQUERADE
-
-exit 0
-EOF
-)
-            ;;
-        3)
-            read -p "Enter the IP Iran2: " ipiran2
-            read -p "Enter the IP Outside: " ipkharej
-
-            commands=$(cat <<EOF
-#!/bin/bash
-
-# تنظیمات تونل برای سرور ایران 2
-ip tunnel add 6to4_To_KH mode sit remote $ipkharej local $ipiran2
-ip -6 addr add 2009:480:1f10:e1f::1/64 dev 6to4_To_KH
-ip link set 6to4_To_KH mtu 1480
-ip link set 6to4_To_KH up
-
-ip -6 tunnel add GRE6Tun_To_KH mode ip6gre remote 2009:480:1f10:e1f::2 local 2009:480:1f10:e1f::1
-ip addr add 10.10.11.1/30 dev GRE6Tun_To_KH
-ip link set GRE6Tun_To_KH mtu 1436
-ip link set GRE6Tun_To_KH up
-
-sysctl net.ipv4.ip_forward=1
-
-# قوانین IPTables برای سرور ایران دوم
-iptables -t nat -A PREROUTING -p tcp --dport 80 -j DNAT --to-destination 10.10.11.1
-iptables -t nat -A POSTROUTING -j MASQUERADE
-
-exit 0
-EOF
-)
-            ;;
         *)
             echo "Invalid option. Please select 1, 2, or 3."
             return
@@ -152,13 +91,10 @@ remove_tunnels() {
     sudo ip tunnel del GRE6Tun_To_IR1 2>/dev/null
     sudo ip tunnel del 6to4_To_IR2 2>/dev/null
     sudo ip tunnel del GRE6Tun_To_IR2 2>/dev/null
-    sudo ip link del 6to4_To_KH 2>/dev/null
-    sudo ip link del GRE6Tun_To_KH 2>/dev/null
-    sudo iptables -t nat -D PREROUTING -p tcp --dport 80 -j DNAT --to-destination 10.10.10.1 2>/dev/null
-    sudo iptables -t nat -D POSTROUTING -j MASQUERADE 2>/dev/null
 
     # Update /etc/rc.local
-    echo -e '#! /bin/bash\n\nexit 0' | sudo tee /etc/rc.local > /dev/null
+    sudo bash -c "echo '#!/bin/bash' > /etc/rc.local"
+    sudo bash -c "echo 'exit 0' >> /etc/rc.local"
     sudo chmod +x /etc/rc.local
 
     echo "Tunnels removed and /etc/rc.local updated."
