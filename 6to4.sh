@@ -54,7 +54,7 @@ optimize() {
         local line="$2"
         local temp_file="$3"
 
-        if [ -f "$file" ]; then
+        if [ -f "$file" ];then
             cp "$file" "$temp_file"
             if ! grep -q "$line" "$file"; then
                 sed -i '/^\[Manager\]/a '"$line" "$temp_file"
@@ -77,7 +77,7 @@ optimize() {
     add_line_if_not_exists "$SYSTEM_CONF" "DefaultLimitNOFILE=1024000" "$TEMP_SYSTEM_CONF"
 
     # Optimize limits.conf
-    if [ -f "$LIMITS_CONF" ]; then
+    if [ -f "$LIMITS_CONF" ];then
         cat <<EOF | sudo tee -a "$LIMITS_CONF"
 * hard nofile 1024000
 * soft nofile 1024000
@@ -208,32 +208,22 @@ change_nameserver() {
     fi
 }
 
-# Function to remove tunnels
-remove_tunnels() {
-    echo "Removing tunnels..."
-
-    # Remove the tunnels
-    sudo ip tunnel del 6to4_To_IR 2>/dev/null
-    sudo ip -6 tunnel del GRE6Tun_To_IR 2>/dev/null
-    sudo ip link del 6to4_To_IR 2>/dev/null
-    sudo ip link del GRE6Tun_To_IR 2>/dev/null
-    sudo iptables -t nat -D PREROUTING -j DNAT --to-destination 10.10.10.2 2>/dev/null
-    sudo iptables -t nat -D POSTROUTING -j MASQUERADE 2>/dev/null
-
-    # Update /etc/rc.local
-    echo -e '#! /bin/bash\n\nexit 0' | sudo tee /etc/rc.local > /dev/null
-    sudo chmod +x /etc/rc.local
-
-    echo "Tunnels removed and /etc/rc.local updated."
-}
-
 # Execute the selected option
 case $server_choice in
     1)
         handle_six_to_four
         ;;
     2)
-        remove_tunnels
+        echo "Removing tunnels..."
+        ip tunnel del 6to4_To_IR 2>/dev/null
+        ip -6 tunnel del GRE6Tun_To_IR 2>/dev/null
+        ip link del 6to4_To_IR 2>/dev/null
+        ip link del GRE6Tun_To_IR 2>/dev/null
+        iptables -t nat -D PREROUTING -j DNAT --to-destination 10.10.10.2 2>/dev/null
+        iptables -t nat -D POSTROUTING -j MASQUERADE 2>/dev/null
+        echo -e '#! /bin/bash\n\nexit 0' | sudo tee /etc/rc.local > /dev/null
+        sudo chmod +x /etc/rc.local
+        echo "Tunnels removed. /etc/rc.local is empty now."
         ;;
     3)
         wget --no-check-certificate -O /opt/bbr.sh https://github.com/teddysun/across/raw/master/bbr.sh
