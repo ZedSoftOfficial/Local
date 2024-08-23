@@ -2,14 +2,16 @@
 
 echo "What should I do?"
 echo "1) 6to4"
-echo "2) Remove tunnels"
-echo "3) Enable BBR"
-echo "4) Fix Whatsapp Time"
-echo "5) Optimize"
-echo "6) Install x-ui"
-echo "7) Change NameServer"
-echo "8) Disable IPv6 - After server reboot IPv6 is activated"
-read -p "Select an option (1, 2, 3, 4, 5, 6, 7, or 8): " server_choice
+echo "2) 6to4 multi server (1 iran 2 outside)"
+echo "3) 6to4 multi server (1 outside 2 iran)"
+echo "4) Remove tunnels"
+echo "5) Enable BBR"
+echo "6) Fix Whatsapp Time"
+echo "7) Optimize"
+echo "8) Install x-ui"
+echo "9) Change NameServer"
+echo "10) Disable IPv6 - After server reboot IPv6 is activated"
+read -p "Select an option (1, 2, 3, 4, 5, 6, 7, 8, 9, or 10): " server_choice
 
 setup_rc_local() {
     FILE="/etc/rc.local"
@@ -189,6 +191,68 @@ EOF
     fi
 }
 
+# Function to handle 6to4 multi server (1 iran 2 outside)
+handle_six_to_four_multi_iran_kharej() {
+    read -p "Enter the IP outside1: " ipkharej1
+    read -p "Enter the IP outside2: " ipkharej2
+    read -p "Enter the IP Iran: " ipiran
+
+    read -p "Enter the ports to tunnel for IP outside1 (example: 80,9090): " ports1
+    read -p "Enter the ports to tunnel for IP outside2 (example: 80,9090): " ports2
+
+    commands=$(cat <<EOF
+ip tunnel add 6to4_To_KH1 mode sit remote $ipkharej1 local $ipiran
+ip -6 addr add 2002:480:1f10:e1f::1/64 dev 6to4_To_KH1
+ip link set 6to4_To_KH1 mtu 1480
+ip link set 6to4_To_KH1 up
+
+ip tunnel add 6to4_To_KH2 mode sit remote $ipkharej2 local $ipiran
+ip -6 addr add 2002:480:1f10:e1f::2/64 dev 6to4_To_KH2
+ip link set 6to4_To_KH2 mtu 1480
+ip link set 6to4_To_KH2 up
+
+sysctl net.ipv4.ip_forward=1
+iptables -t nat -A PREROUTING -p tcp --dport $ports1 -j DNAT --to-destination 10.10.10.1
+iptables -t nat -A PREROUTING -p tcp --dport $ports2 -j DNAT --to-destination 10.10.10.2
+iptables -t nat -A POSTROUTING -j MASQUERADE
+EOF
+)
+
+    setup_rc_local "$commands"
+    echo "Commands executed for the multi-server (1 Iran, 2 Outside) setup."
+}
+
+# Function to handle 6to4 multi server (1 outside 2 iran)
+handle_six_to_four_multi_kharej_iran() {
+    read -p "Enter the IP Iran1: " ipiran1
+    read -p "Enter the IP Iran2: " ipiran2
+    read -p "Enter the IP outside: " ipkharej
+
+    read -p "Enter the ports to tunnel for IP Iran1 (example: 80,9090): " ports1
+    read -p "Enter the ports to tunnel for IP Iran2 (example: 80,9090): " ports2
+
+    commands=$(cat <<EOF
+ip tunnel add 6to4_To_IR1 mode sit remote $ipiran1 local $ipkharej
+ip -6 addr add 2002:480:1f10:e1f::1/64 dev 6to4_To_IR1
+ip link set 6to4_To_IR1 mtu 1480
+ip link set 6to4_To_IR1 up
+
+ip tunnel add 6to4_To_IR2 mode sit remote $ipiran2 local $ipkharej
+ip -6 addr add 2002:480:1f10:e1f::2/64 dev 6to4_To_IR2
+ip link set 6to4_To_IR2 mtu 1480
+ip link set 6to4_To_IR2 up
+
+sysctl net.ipv4.ip_forward=1
+iptables -t nat -A PREROUTING -p tcp --dport $ports1 -j DNAT --to-destination 10.10.10.1
+iptables -t nat -A PREROUTING -p tcp --dport $ports2 -j DNAT --to-destination 10.10.10.2
+iptables -t nat -A POSTROUTING -j MASQUERADE
+EOF
+)
+
+    setup_rc_local "$commands"
+    echo "Commands executed for the multi-server (1 Outside, 2 Iran) setup."
+}
+
 # Function to change NameServer
 change_nameserver() {
     FILE="/etc/resolv.conf"
@@ -233,30 +297,36 @@ case $server_choice in
         handle_six_to_four
         ;;
     2)
-        remove_tunnels
+        handle_six_to_four_multi_iran_kharej
         ;;
     3)
+        handle_six_to_four_multi_kharej_iran
+        ;;
+    4)
+        remove_tunnels
+        ;;
+    5)
         wget --no-check-certificate -O /opt/bbr.sh https://github.com/teddysun/across/raw/master/bbr.sh
         chmod 755 /opt/bbr.sh
         /opt/bbr.sh
         echo "BBR optimization enabled."
         ;;
-    4)
+    6)
         fix_whatsapp_time
         ;;
-    5)
+    7)
         optimize
         ;;
-    6)
+    8)
         install_x_ui
         ;;
-    7)
+    9)
         change_nameserver
         ;;
-    8)
+    10)
         disable_ipv6
         ;;
     *)
-        echo "Invalid option. Please select 1, 2, 3, 4, 5, 6, 7, or 8."
+        echo "Invalid option. Please select a valid option."
         ;;
 esac
